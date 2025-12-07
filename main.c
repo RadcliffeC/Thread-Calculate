@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <fcntl.h>
+#include <string.h>
 
 /*
  * global count variable to add numbers in the file
@@ -39,8 +41,8 @@ struct args {
 
 int main(int argc, char *argv[]) {
     char *file;
-    int numChild, i;
-    FILE *fp;
+    int numChild, i, len;
+    int fp;
     pthread_t *threads;
     int size, chunk, leftover, total;
     struct args *args;
@@ -63,8 +65,8 @@ int main(int argc, char *argv[]) {
     /* create array of threads*/
     threads = malloc(sizeof(pthread_t) * numChild);
 
-    fp = fopen(file, "r");
-    if (fp == NULL) {
+    fp = open(file, O_RDONLY);
+    if (fp == -1) {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
@@ -72,9 +74,8 @@ int main(int argc, char *argv[]) {
      * calculate size of file
      * get chunk size and leftover amount to pass to each thread
      */
-    fseek(fp, 0, SEEK_END);
-    size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    size = lseek(fp, 0, SEEK_END);
+    lseek(fp, 0, SEEK_SET);
 
     total = size / sizeof(int);
     chunk = total / numChild;
@@ -108,12 +109,15 @@ int main(int argc, char *argv[]) {
     }
 
     /* caclulate total and free used memory */
-    printf("Calculated total: %d\n", count);
+    char buffer[1024];
+    sprintf(buffer, "Calculated total: %d\n", count);
+    len = strlen(buffer);
+    write(2, buffer, len);
 
     sem_destroy(&mutex);
     free(threads);
     free(args);
-    fclose(fp);
+    close(fp);
     return 0;
 }
 
@@ -127,18 +131,18 @@ int main(int argc, char *argv[]) {
 void *threadFunc(void *args) {
     struct args *fargs = (struct args *)args;
     char *filename = fargs->filename;
-    FILE *fp2;
+    int fp2;
     int found, j;
-    fp2 = fopen(filename, "r");
-    fseek(fp2, fargs->offset, SEEK_SET);
+    fp2 = open(filename, O_RDONLY);
+    lseek(fp2, fargs->offset, SEEK_SET);
     for (j=0; j < fargs->count; j++) {
-        fread(&found, 1, sizeof(int), fp2);
+        read(fp2, &found, sizeof(int));
         /* Mutex to block from race condition */
         sem_wait(&mutex);
         count += found;
         sem_post(&mutex);
     }
     /* close file */
-    fclose(fp2);
+    close(fp2);
     pthread_exit(NULL);
 }
